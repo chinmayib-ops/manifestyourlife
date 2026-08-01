@@ -209,6 +209,16 @@ const BOARD_BUCKET = "vision-board";
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/avif"];
 
+// Tile size is derived from the file path, so the collage keeps the same shape
+// across reloads instead of reshuffling every time the page is opened.
+// Weighted toward plain tiles: a few large ones is a collage, all large is noise.
+const COLLAGE_SHAPES = ["big", "wide", "tall", "wide", "tall", "", "", "", "", ""];
+function collageShape(path, index) {
+  let hash = index;
+  for (let i = 0; i < path.length; i++) hash = (hash * 31 + path.charCodeAt(i)) >>> 0;
+  return COLLAGE_SHAPES[hash % COLLAGE_SHAPES.length];
+}
+
 async function loadBoard() {
   const userId = state.session && state.session.user.id;
   if (!userId) return;
@@ -582,10 +592,13 @@ function renderBoardView() {
   });
 
   const grid = count
-    ? h("div", { className: "board-grid" }, state.board.map((item) => h("div", { className: "board-item" }, [
-        h("img", { src: item.url, alt: "", loading: "lazy" }),
-        h("button", { className: "board-delete", title: "Remove from board", onClick: () => deleteBoardImage(item) }, "✕"),
-      ])))
+    ? h("div", { className: "board-grid" }, state.board.map((item, i) => {
+        const shape = collageShape(item.path, i);
+        return h("div", { className: "board-item" + (shape ? " " + shape : "") }, [
+          h("img", { src: item.url, alt: "", loading: "lazy" }),
+          h("button", { className: "board-delete", title: "Remove from board", onClick: () => deleteBoardImage(item) }, "✕"),
+        ]);
+      }))
     : h("div", { className: "board-empty" }, "Nothing pinned yet. Add the images of the life you're picturing.");
 
   return h("div", { className: "page-view" }, [
