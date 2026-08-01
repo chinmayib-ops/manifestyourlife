@@ -61,3 +61,19 @@ create policy "Users manage only their own goals"
   for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
+
+-- Vision board images. A PRIVATE storage bucket: files are only ever reachable
+-- through short-lived signed URLs the app generates for their owner, so nobody
+-- can browse or guess their way to someone else's board.
+insert into storage.buckets (id, name, public)
+values ('vision-board', 'vision-board', false)
+on conflict (id) do nothing;
+
+-- Each user's images live under a folder named with their own user id, and the
+-- policy below is what enforces that they can only touch that folder.
+drop policy if exists "Users manage only their own board images" on storage.objects;
+create policy "Users manage only their own board images"
+  on storage.objects
+  for all
+  using (bucket_id = 'vision-board' and auth.uid()::text = (storage.foldername(name))[1])
+  with check (bucket_id = 'vision-board' and auth.uid()::text = (storage.foldername(name))[1]);

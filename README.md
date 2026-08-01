@@ -23,6 +23,10 @@ Live at: https://manifestyourlife-one.vercel.app
 - **Goals** — the concrete steps between here and that letter. Check them off
   as you take them; the page tracks how many you've taken and how long is
   left.
+- **Vision Board** — pin images of the life you're picturing, with a count of
+  how many are on the board and the same days-remaining countdown. Images go
+  to a private storage bucket and are only ever served over short-lived signed
+  URLs generated for their owner.
 
 ## Privacy — how your data is kept just yours
 
@@ -57,7 +61,8 @@ client, loaded straight from a CDN.
 - `dom.test.html` — self-check for `dom.js`; open it in a browser, the tab
   title reads PASS or FAIL
 - `config.js` — your Supabase project URL + anon key
-- `supabase/schema.sql` — the database tables and privacy policies
+- `supabase/schema.sql` — the database tables, storage bucket, and privacy policies
+- `article.md` — a written piece on the practice behind the app
 
 ## Setup
 

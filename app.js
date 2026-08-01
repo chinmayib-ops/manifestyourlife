@@ -15,6 +15,9 @@ const state = {
   starsLoaded: false,
   loadError: null,
   missingTables: [],
+  board: [],
+  boardError: null,
+  boardUploading: false,
   view: "sky",
   affirmIndex: 0,
   addOpen: false,
@@ -201,6 +204,73 @@ async function loadStars() {
   });
 }
 
+// ---------- vision board (private storage bucket) ----------
+const BOARD_BUCKET = "vision-board";
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/avif"];
+
+async function loadBoard() {
+  const userId = state.session && state.session.user.id;
+  if (!userId) return;
+  const { data, error } = await supabase.storage.from(BOARD_BUCKET).list(userId, {
+    limit: 200,
+    sortBy: { column: "created_at", order: "desc" },
+  });
+  if (error) {
+    console.error(error);
+    setState({ board: [], boardError: error.message });
+    return;
+  }
+  const files = (data || []).filter((f) => f.id);
+  if (!files.length) { setState({ board: [], boardError: null }); return; }
+  const paths = files.map((f) => `${userId}/${f.name}`);
+  const { data: signed, error: signErr } = await supabase.storage
+    .from(BOARD_BUCKET)
+    .createSignedUrls(paths, 3600);
+  if (signErr) {
+    console.error(signErr);
+    setState({ board: [], boardError: signErr.message });
+    return;
+  }
+  setState({
+    board: signed.map((s, i) => ({ path: paths[i], url: s.signedUrl, name: files[i].name })),
+    boardError: null,
+  });
+}
+
+async function uploadBoardImages(fileList) {
+  const userId = state.session && state.session.user.id;
+  if (!userId) return;
+  const files = [...fileList];
+  const rejected = [];
+  setState({ boardUploading: true });
+  for (const file of files) {
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      rejected.push(`${file.name} — not an image we support`);
+      continue;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      rejected.push(`${file.name} — larger than 10 MB`);
+      continue;
+    }
+    // Strip anything path-like out of the user-supplied filename so an upload
+    // can never be written outside this user's own folder.
+    const safeName = file.name.replace(/[^\w.\-]+/g, "_").slice(-80);
+    const { error } = await supabase.storage
+      .from(BOARD_BUCKET)
+      .upload(`${userId}/${Date.now()}-${safeName}`, file, { contentType: file.type });
+    if (error) { console.error(error); rejected.push(`${file.name} — ${error.message}`); }
+  }
+  setState({ boardUploading: false, boardError: rejected.length ? rejected.join("; ") : null });
+  await loadBoard();
+}
+
+async function deleteBoardImage(item) {
+  const { error } = await supabase.storage.from(BOARD_BUCKET).remove([item.path]);
+  if (error) { console.error(error); setState({ boardError: error.message }); return; }
+  await loadBoard();
+}
+
 async function saveVision(text) {
   const target_date = (state.vision && state.vision.target_date) || fourMonthsOut();
   const { error } = await supabase.from("vision").upsert(
@@ -370,15 +440,19 @@ function renderTopBar() {
     h("button", { className: "nav-item" + (state.view === "affirm" ? " active" : ""), onClick: () => setView("affirm") }, "Affirmations"),
     h("button", { className: "nav-item" + (state.view === "vision" ? " active" : ""), onClick: () => setView("vision") }, "Everything Worked Out"),
     h("button", { className: "nav-item" + (state.view === "goals" ? " active" : ""), onClick: () => setView("goals") }, "Goals"),
+    h("button", { className: "nav-item" + (state.view === "board" ? " active" : ""), onClick: () => setView("board") }, "Vision Board"),
     state.view === "sky" ? h("button", { className: "add-btn", onClick: () => setState({ addOpen: true, addTab: "write" }) }, "+ Add a star") : null,
-    h("button", { className: "signout-btn", onClick: () => supabase.auth.signOut() }, "Sign out"),
   ]);
-  return [title, sub, nav].filter(Boolean);
+  const signout = h("button", { className: "signout-btn", onClick: () => supabase.auth.signOut() }, "Sign out");
+  return [title, sub, nav, signout].filter(Boolean);
 }
 
 function setView(v) {
   clearInterval(affirmTimer);
   if (v === "affirm") startAffirmTimer();
+  // Loaded on open rather than at sign-in: the image URLs are signed and expire,
+  // so they're fetched fresh each time the board is actually looked at.
+  if (v === "board") loadBoard();
   setState({ view: v, affirmIndex: 0 });
 }
 function startAffirmTimer() {
@@ -489,6 +563,51 @@ function renderGoalsView() {
       renderSchemaNotice("goals"),
       h("div", { className: "goal-add" }, [input, h("button", { className: "btn-gold", onClick: submit }, "Add")]),
       list,
+    ].filter(Boolean)),
+  ]);
+}
+
+// ---------- Vision board ----------
+function renderBoardView() {
+  if (state.view !== "board") return null;
+  const count = state.board.length;
+  const targetDate = (state.vision && state.vision.target_date) || fourMonthsOut();
+
+  const picker = h("input", {
+    type: "file",
+    accept: ALLOWED_IMAGE_TYPES.join(","),
+    multiple: true,
+    style: { display: "none" },
+    onChange: (e) => { if (e.target.files.length) uploadBoardImages(e.target.files); },
+  });
+
+  const grid = count
+    ? h("div", { className: "board-grid" }, state.board.map((item) => h("div", { className: "board-item" }, [
+        h("img", { src: item.url, alt: "", loading: "lazy" }),
+        h("button", { className: "board-delete", title: "Remove from board", onClick: () => deleteBoardImage(item) }, "✕"),
+      ])))
+    : h("div", { className: "board-empty" }, "Nothing pinned yet. Add the images of the life you're picturing.");
+
+  return h("div", { className: "page-view" }, [
+    h("button", { className: "affirm-close", onClick: () => setView("sky") }, "Close ✕"),
+    h("div", { className: "page-body" }, [
+      h("div", { className: "page-eyebrow" }, `${count} ${count === 1 ? "image" : "images"} pinned · ${daysUntil(targetDate)} days left`),
+      h("div", { className: "page-title" }, "Vision Board"),
+      h("div", { className: "page-sub" }, "The life you're picturing, where you can actually look at it."),
+      state.boardError ? h("div", { className: "schema-notice" }, [
+        h("strong", {}, "Couldn't load the board. "),
+        state.boardError + ' — if this mentions a missing bucket, re-run supabase/schema.sql to create the private "vision-board" bucket.',
+      ]) : null,
+      h("div", { className: "board-actions" }, [
+        picker,
+        h("button", {
+          className: "btn-gold",
+          onClick: () => picker.click(),
+          disabled: state.boardUploading,
+        }, state.boardUploading ? "Uploading…" : "+ Add images"),
+        h("span", { className: "board-hint" }, "JPG, PNG, GIF, WEBP or AVIF · up to 10 MB each · private to you"),
+      ]),
+      grid,
     ].filter(Boolean)),
   ]);
 }
@@ -639,6 +758,7 @@ function renderMainNodes() {
     renderAffirmView(),
     renderVisionView(),
     renderGoalsView(),
+    renderBoardView(),
   ].filter(Boolean);
 }
 
