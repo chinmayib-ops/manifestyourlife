@@ -151,6 +151,14 @@ button { font-family: inherit; }
 .goal-delete:hover { color: rgba(255,150,150,0.9); }
 .goal-empty { color: rgba(255,255,255,0.35); font-size: 18px; font-style: italic; padding: 10px 2px; }
 
+/* ---------- Error / notice states ---------- */
+.fatal { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 40px; gap: 14px; background: rgba(1,1,2,0.72); backdrop-filter: blur(5px); }
+.fatal-title { color: rgba(255,240,220,0.9); font-size: 26px; font-style: italic; }
+.fatal-detail { color: rgba(255,150,150,0.85); font-size: 15px; font-family: ui-monospace, monospace; max-width: 620px; word-break: break-word; line-height: 1.5; }
+.fatal-actions { display: flex; gap: 12px; margin-top: 10px; }
+.schema-notice { background: rgba(255,200,120,0.08); border: 1px solid rgba(255,200,120,0.25); border-radius: 12px; color: rgba(255,225,180,0.85); font-size: 15px; line-height: 1.55; padding: 14px 18px; margin-bottom: 22px; }
+.schema-notice strong { color: #ffe9b3; }
+
 /* ---------- Shooting star burst ---------- */
 .shoot-wrap { position: absolute; width: 0; height: 0; pointer-events: none; }
 .burst-particle { position: absolute; left: 0; top: 0; width: 4px; height: 4px; border-radius: 50%; background: #ffe9b3; box-shadow: 0 0 8px 2px rgba(255,220,150,0.8); animation: burstOut 1.1s ease-out forwards; }

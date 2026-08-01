@@ -31,6 +31,8 @@ const state = {
   vision: null,
   goals: [],
   starsLoaded: false,
+  loadError: null,
+  missingTables: [],
   view: "sky",
   affirmIndex: 0,
   addOpen: false,
@@ -186,20 +188,34 @@ function playChime() {
 }
 
 // ---------- data access (Supabase; RLS keeps rows private per user) ----------
+// Never leaves the app stuck: on failure it still marks the load finished and
+// records a message the UI shows, rather than failing silently to a blank sky.
 async function loadStars() {
-  const [starsRes, visionRes, goalsRes] = await Promise.all([
-    supabase.from("stars").select("*").order("created_at", { ascending: true }),
-    supabase.from("vision").select("*").maybeSingle(),
-    supabase.from("goals").select("*").order("created_at", { ascending: true }),
-  ]);
-  if (starsRes.error) { console.error(starsRes.error); return; }
-  if (visionRes.error) console.error(visionRes.error);
-  if (goalsRes.error) console.error(goalsRes.error);
+  let starsRes, visionRes, goalsRes;
+  try {
+    [starsRes, visionRes, goalsRes] = await Promise.all([
+      supabase.from("stars").select("*").order("created_at", { ascending: true }),
+      supabase.from("vision").select("*").maybeSingle(),
+      supabase.from("goals").select("*").order("created_at", { ascending: true }),
+    ]);
+  } catch (e) {
+    console.error(e);
+    setState({ starsLoaded: true, loadError: e.message || String(e) });
+    return;
+  }
+  for (const r of [starsRes, visionRes, goalsRes]) if (r.error) console.error(r.error);
   setState({
-    stars: starsRes.data,
+    stars: starsRes.data || [],
     vision: visionRes.data || null,
     goals: goalsRes.data || [],
     starsLoaded: true,
+    loadError: starsRes.error ? starsRes.error.message : null,
+    // The two newer tables are optional: if the schema hasn't been re-run yet the
+    // sky still works, and those pages explain what's missing instead of breaking.
+    missingTables: [
+      visionRes.error && "vision",
+      goalsRes.error && "goals",
+    ].filter(Boolean),
   });
 }
 
@@ -407,6 +423,16 @@ function goToAffirm(i) {
   render();
 }
 
+// Shown when the schema hasn't been re-run yet, so these pages explain the fix
+// instead of silently saving nothing.
+function renderSchemaNotice(table) {
+  if (!state.missingTables.includes(table)) return null;
+  return h("div", { className: "schema-notice" }, [
+    h("strong", {}, "This page isn't connected yet. "),
+    `Run supabase/schema.sql in your Supabase SQL editor to create the "${table}" table — until then nothing here will save.`,
+  ]);
+}
+
 // ---------- "Everything Worked Out" ----------
 function renderVisionView() {
   if (state.view !== "vision") return null;
@@ -433,12 +459,13 @@ function renderVisionView() {
       h("div", { className: "page-eyebrow" }, longDate(targetDate)),
       h("div", { className: "page-title" }, "Everything worked out."),
       h("div", { className: "page-sub" }, `${daysUntil(targetDate)} days from now — write it as though you're already there.`),
+      renderSchemaNotice("vision"),
       textarea,
       h("div", { className: "vision-actions" }, [
         saveLabel,
         h("button", { className: "btn-gold", onClick: save }, "Save"),
       ]),
-    ]),
+    ].filter(Boolean)),
   ]);
 }
 
@@ -477,9 +504,10 @@ function renderGoalsView() {
       h("div", { className: "page-eyebrow" }, `${done} of ${state.goals.length} taken · ${daysUntil(targetDate)} days left`),
       h("div", { className: "page-title" }, "Goals"),
       h("div", { className: "page-sub" }, "The steps between here and everything working out."),
+      renderSchemaNotice("goals"),
       h("div", { className: "goal-add" }, [input, h("button", { className: "btn-gold", onClick: submit }, "Add")]),
       list,
-    ]),
+    ].filter(Boolean)),
   ]);
 }
 
@@ -650,29 +678,59 @@ function render() {
     ? "radial-gradient(ellipse at 50% 0%, #1c1508 0%, #0e0904 45%, #050301 100%)"
     : "radial-gradient(ellipse at 50% 0%, #0e0e13 0%, #06060a 45%, #010102 100%)";
   fgLayer.innerHTML = "";
-  if (!state.session) {
-    fgLayer.appendChild(renderAuth());
-    return;
+  // A crash while building the foreground must not leave a blank sky with no
+  // way out -- show what broke and keep the sign-out escape hatch.
+  try {
+    if (!state.session) {
+      fgLayer.appendChild(renderAuth());
+      return;
+    }
+    if (!state.starsLoaded) {
+      fgLayer.appendChild(h("div", { id: "boot-message" }, "Loading your sky…"));
+      return;
+    }
+    if (state.loadError) {
+      fgLayer.appendChild(renderFatal("Couldn't load your sky", state.loadError));
+      return;
+    }
+    renderMainNodes().forEach((n) => fgLayer.appendChild(n));
+  } catch (e) {
+    console.error(e);
+    fgLayer.innerHTML = "";
+    fgLayer.appendChild(renderFatal("Something broke while drawing the page", e.message || String(e)));
   }
-  if (!state.starsLoaded) {
-    fgLayer.appendChild(h("div", { id: "boot-message" }, "Loading your sky…"));
-    loadStars();
-    return;
-  }
-  renderMainNodes().forEach((n) => fgLayer.appendChild(n));
+}
+
+function renderFatal(title, detail) {
+  return h("div", { className: "fatal" }, [
+    h("div", { className: "fatal-title" }, title),
+    h("div", { className: "fatal-detail" }, detail),
+    h("div", { className: "fatal-actions" }, [
+      h("button", { className: "btn-ghost", onClick: () => location.reload() }, "Reload"),
+      h("button", { className: "btn-gold", onClick: () => supabase.auth.signOut().then(() => location.reload()) }, "Sign out"),
+    ]),
+  ]);
 }
 
 supabase.auth.getSession().then(({ data }) => {
   state.session = data.session;
   render();
+  if (data.session) loadStars();
 }).catch((e) => {
   console.error("Supabase not reachable — check config.js", e);
-  render();
+  setState({ loadError: "Couldn't reach Supabase: " + (e.message || String(e)) });
 });
 supabase.auth.onAuthStateChange((_event, session) => {
   const hadSession = !!state.session;
   state.session = session;
-  if (!session) { state.stars = []; state.starsLoaded = false; }
-  else if (!hadSession) { state.starsLoaded = false; }
-  render();
+  if (!session) {
+    Object.assign(state, { stars: [], vision: null, goals: [], starsLoaded: false, loadError: null });
+    render();
+    return;
+  }
+  if (!hadSession) {
+    Object.assign(state, { starsLoaded: false, loadError: null });
+    render();
+    loadStars();
+  }
 });
