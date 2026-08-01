@@ -4,7 +4,7 @@ A private, personal star map for the things you're manifesting. Every intention
 you set becomes a star. Watch your sky fill up, revisit your affirmations,
 and mark stars as manifested when they come true.
 
-Live at: _add your deployed URL here once you've deployed it_
+Live at: https://manifestyourlife-one.vercel.app
 
 ## What it does
 
