@@ -241,7 +241,7 @@ function renderAuth() {
     });
   }
   return h("div", { className: "auth-screen" }, [
-    h("div", { className: "auth-card" }, [
+    h("div", { className: "auth-card", onClick: (e) => e.stopPropagation() }, [
       h("div", { className: "auth-title" }, "✦ manifestation star map"),
       h("div", { className: "auth-sub" }, "Your sky, your affirmations — visible only to you."),
       emailInput,
@@ -497,9 +497,8 @@ function renderShooting() {
   return h("div", { className: "shoot-wrap", style: { left: sh.x + "%", top: sh.y + "%" } }, [...particles, ...lines]);
 }
 
-function renderMain() {
-  const nodes = [
-    ...renderBackground(),
+function renderMainNodes() {
+  return [
     renderStarsLayer(),
     renderShooting(),
     ...renderTopBar(),
@@ -509,28 +508,43 @@ function renderMain() {
     renderStarModal(),
     renderAffirmView(),
   ].filter(Boolean);
-  return h("div", { style: { position: "relative", width: "100%", height: "100vh", background: state.view === "fulfilled"
-      ? "radial-gradient(ellipse at 50% 0%, #1c1508 0%, #0e0904 45%, #050301 100%)"
-      : "radial-gradient(ellipse at 50% 0%, #0e0e13 0%, #06060a 45%, #010102 100%)", transition: "background 1.2s ease" } }, nodes);
 }
 
 // ---------- top-level render ----------
+// The animated starfield (bgLayer) is mounted once and never torn down, so its
+// per-star random animation timings keep running smoothly across re-renders
+// instead of restarting on every click/keystroke. Only the foreground
+// (fgLayer) is rebuilt when state changes.
+const shell = h("div", { style: { position: "relative", width: "100%", height: "100vh", overflow: "hidden", transition: "background 1.2s ease" } });
+const bgLayer = h("div", { style: { position: "absolute", inset: "0" } }, renderBackground());
+const fgLayer = h("div", { style: { position: "absolute", inset: "0" } });
+shell.appendChild(bgLayer);
+shell.appendChild(fgLayer);
+root.innerHTML = "";
+root.appendChild(shell);
+
 function render() {
-  root.innerHTML = "";
+  shell.style.background = state.session && state.view === "fulfilled"
+    ? "radial-gradient(ellipse at 50% 0%, #1c1508 0%, #0e0904 45%, #050301 100%)"
+    : "radial-gradient(ellipse at 50% 0%, #0e0e13 0%, #06060a 45%, #010102 100%)";
+  fgLayer.innerHTML = "";
   if (!state.session) {
-    root.appendChild(renderAuth());
+    fgLayer.appendChild(renderAuth());
     return;
   }
   if (!state.starsLoaded) {
-    root.appendChild(h("div", { id: "boot-message" }, "Loading your sky…"));
+    fgLayer.appendChild(h("div", { id: "boot-message" }, "Loading your sky…"));
     loadStars();
     return;
   }
-  root.appendChild(renderMain());
+  renderMainNodes().forEach((n) => fgLayer.appendChild(n));
 }
 
 supabase.auth.getSession().then(({ data }) => {
   state.session = data.session;
+  render();
+}).catch((e) => {
+  console.error("Supabase not reachable — check config.js", e);
   render();
 });
 supabase.auth.onAuthStateChange((_event, session) => {
