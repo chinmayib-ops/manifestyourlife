@@ -51,8 +51,11 @@ client, loaded straight from a CDN.
 - `index.html` — page shell
 - `style.css` — all styling and animations
 - `app.js` — app logic (auth, rendering, star map state)
+- `dom.js` — the ~20-line DOM builder used instead of a framework
 - `dates.js` — date math for the four-month target and countdown
 - `dates.test.js` — self-check for the above (`npm test`)
+- `dom.test.html` — self-check for `dom.js`; open it in a browser, the tab
+  title reads PASS or FAIL
 - `config.js` — your Supabase project URL + anon key
 - `supabase/schema.sql` — the database tables and privacy policies
 

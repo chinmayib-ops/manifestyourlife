@@ -1,0 +1,63 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>dom.js checks</title>
+<body style="font:15px ui-monospace,monospace;background:#0b0b10;color:#cfc">
+<pre id="out">running…</pre>
+<script type="module">
+import { h, svg } from "./dom.js";
+
+const results = [];
+const check = (name, fn) => {
+  try { fn(); results.push("PASS  " + name); }
+  catch (e) { results.push("FAIL  " + name + "\n        " + (e.message || e)); }
+};
+const eq = (a, b, msg) => { if (a !== b) throw new Error(`${msg || ""} expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`); };
+
+// The bug that shipped: SVG className is a read-only SVGAnimatedString, so
+// assigning to it throws and takes the whole render down.
+check("className on an SVG element does not throw", () => {
+  const el = svg("svg", { className: "lines-svg" });
+  eq(el.getAttribute("class"), "lines-svg", "svg class:");
+});
+
+check("className on an HTML element still works", () => {
+  const el = h("div", { className: "star-core" });
+  eq(el.getAttribute("class"), "star-core", "html class:");
+  eq(el.className, "star-core", "html className:");
+});
+
+check("svg children land in the SVG namespace", () => {
+  const path = svg("path", { d: "M 0 0 L 1 1", stroke: "#fff" });
+  eq(path.namespaceURI, "http://www.w3.org/2000/svg", "namespace:");
+  eq(path.getAttribute("d"), "M 0 0 L 1 1", "d:");
+});
+
+check("CSS custom properties survive (star animations rely on them)", () => {
+  const el = h("div", { style: { "--op": 0.42, width: "3px" } });
+  eq(el.style.getPropertyValue("--op"), "0.42", "--op:");
+  eq(el.style.width, "3px", "width:");
+});
+
+check("null/false attrs and children are skipped", () => {
+  const el = h("div", { title: null, hidden: false }, ["a", null, false, h("b", {}, "c")]);
+  eq(el.hasAttribute("title"), false, "null attr:");
+  eq(el.hasAttribute("hidden"), false, "false attr:");
+  eq(el.textContent, "ac", "children:");
+});
+
+check("event handlers bind", () => {
+  let hits = 0;
+  const el = h("button", { onClick: () => hits++ });
+  el.click();
+  eq(hits, 1, "click count:");
+});
+
+check("tags containing a colon are only SVG when prefixed", () => {
+  eq(h("div").namespaceURI, "http://www.w3.org/1999/xhtml", "plain div namespace:");
+});
+
+const failed = results.filter((r) => r.startsWith("FAIL")).length;
+document.getElementById("out").textContent =
+  results.join("\n") + "\n\n" + (failed ? `${failed} FAILED` : "all checks passed");
+document.title = failed ? "FAIL" : "PASS";
+</script>

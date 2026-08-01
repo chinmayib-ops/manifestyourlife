@@ -1,28 +1,10 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
 import { fourMonthsOut, daysUntil, longDate } from "./dates.js";
+import { h, svg } from "./dom.js";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const root = document.getElementById("app");
-
-// ---------- tiny DOM helper (no framework needed) ----------
-function h(tag, attrs = {}, children = []) {
-  const el = tag.includes(":") ? document.createElementNS("http://www.w3.org/2000/svg", tag.split(":")[1]) : document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs || {})) {
-    if (v == null || v === false) continue;
-    if (k === "className") el.className = v;
-    else if (k === "style" && typeof v === "object") Object.assign(el.style, v);
-    else if (k.startsWith("on") && typeof v === "function") el.addEventListener(k.slice(2).toLowerCase(), v);
-    else if (k === "text") el.textContent = v;
-    else el.setAttribute(k, v);
-  }
-  for (const c of [].concat(children)) {
-    if (c == null || c === false) continue;
-    el.appendChild(typeof c === "string" || typeof c === "number" ? document.createTextNode(String(c)) : c);
-  }
-  return el;
-}
-const svg = (tag, attrs, children) => h("svg:" + tag, attrs, children);
 
 // ---------- state ----------
 const state = {
