@@ -1,5 +1,6 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
+import { fourMonthsOut, daysUntil, longDate } from "./dates.js";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const root = document.getElementById("app");
@@ -27,6 +28,8 @@ const svg = (tag, attrs, children) => h("svg:" + tag, attrs, children);
 const state = {
   session: null,
   stars: [],
+  vision: null,
+  goals: [],
   starsLoaded: false,
   view: "sky",
   affirmIndex: 0,
@@ -184,9 +187,46 @@ function playChime() {
 
 // ---------- data access (Supabase; RLS keeps rows private per user) ----------
 async function loadStars() {
-  const { data, error } = await supabase.from("stars").select("*").order("created_at", { ascending: true });
+  const [starsRes, visionRes, goalsRes] = await Promise.all([
+    supabase.from("stars").select("*").order("created_at", { ascending: true }),
+    supabase.from("vision").select("*").maybeSingle(),
+    supabase.from("goals").select("*").order("created_at", { ascending: true }),
+  ]);
+  if (starsRes.error) { console.error(starsRes.error); return; }
+  if (visionRes.error) console.error(visionRes.error);
+  if (goalsRes.error) console.error(goalsRes.error);
+  setState({
+    stars: starsRes.data,
+    vision: visionRes.data || null,
+    goals: goalsRes.data || [],
+    starsLoaded: true,
+  });
+}
+
+async function saveVision(text) {
+  const target_date = (state.vision && state.vision.target_date) || fourMonthsOut();
+  const { error } = await supabase.from("vision").upsert(
+    { user_id: state.session.user.id, text, target_date, updated_at: new Date().toISOString() },
+    { onConflict: "user_id" }
+  );
   if (error) { console.error(error); return; }
-  setState({ stars: data, starsLoaded: true });
+  await loadStars();
+}
+
+async function addGoal(text) {
+  const { error } = await supabase.from("goals").insert({ text });
+  if (error) { console.error(error); return; }
+  await loadStars();
+}
+async function toggleGoal(goal) {
+  const { error } = await supabase.from("goals").update({ done: !goal.done }).eq("id", goal.id);
+  if (error) console.error(error);
+  await loadStars();
+}
+async function deleteGoal(goal) {
+  const { error } = await supabase.from("goals").delete().eq("id", goal.id);
+  if (error) console.error(error);
+  await loadStars();
 }
 async function addStar(text, group) {
   const pos = pickPosition(state.stars.filter((s) => !s.fulfilled));
@@ -253,7 +293,8 @@ function renderAuth() {
 
 // ---------- main app ----------
 function visibleStars() {
-  return state.stars.filter((s) => (state.view === "sky" ? !s.fulfilled : s.fulfilled));
+  // Overlay views (affirm/vision/goals) keep the normal sky behind them.
+  return state.stars.filter((s) => (state.view === "fulfilled" ? s.fulfilled : !s.fulfilled));
 }
 function unfulfilled() {
   return state.stars.filter((s) => !s.fulfilled);
@@ -290,7 +331,7 @@ function renderStarsLayer() {
 
   const lines = [];
   let seed = 0;
-  if (state.view === "sky") {
+  if (state.view !== "fulfilled") {
     const byGroup = {};
     displayStars.forEach((s) => { if (s.group_name) (byGroup[s.group_name] = byGroup[s.group_name] || []).push(s); });
     Object.values(byGroup).forEach((list) => {
@@ -327,8 +368,10 @@ function renderTopBar() {
   const sub = state.view === "fulfilled" ? h("div", { className: "fulfilled-sub" }, `${fulfilledCount} dreams fulfilled`) : null;
   const nav = h("div", { className: "nav-bar" }, [
     h("button", { className: "nav-item" + (state.view === "sky" ? " active" : ""), onClick: () => setView("sky") }, "Sky"),
-    h("button", { className: "nav-item" + (state.view === "fulfilled" ? " active" : ""), onClick: () => setView("fulfilled") }, "Fulfilled Dreams"),
+    h("button", { className: "nav-item" + (state.view === "fulfilled" ? " active" : ""), onClick: () => setView("fulfilled") }, "Fulfilled"),
     h("button", { className: "nav-item" + (state.view === "affirm" ? " active" : ""), onClick: () => setView("affirm") }, "Affirmations"),
+    h("button", { className: "nav-item" + (state.view === "vision" ? " active" : ""), onClick: () => setView("vision") }, "Everything Worked Out"),
+    h("button", { className: "nav-item" + (state.view === "goals" ? " active" : ""), onClick: () => setView("goals") }, "Goals"),
     state.view === "sky" ? h("button", { className: "add-btn", onClick: () => setState({ addOpen: true, addTab: "write" }) }, "+ Add a star") : null,
     h("button", { className: "signout-btn", onClick: () => supabase.auth.signOut() }, "Sign out"),
   ]);
@@ -364,7 +407,84 @@ function goToAffirm(i) {
   render();
 }
 
+// ---------- "Everything Worked Out" ----------
+function renderVisionView() {
+  if (state.view !== "vision") return null;
+  const targetDate = (state.vision && state.vision.target_date) || fourMonthsOut();
+  let draft = (state.vision && state.vision.text) || "";
+  let saveLabel = null;
+
+  const textarea = h("textarea", {
+    className: "vision-textarea",
+    placeholder: "It's already happened. Write it in past tense — what changed, how it feels, who you became…",
+    onInput: (e) => { draft = e.target.value; if (saveLabel) saveLabel.textContent = ""; },
+  });
+  textarea.value = draft;
+
+  saveLabel = h("span", { className: "vision-saved" });
+  const save = async () => {
+    saveLabel.textContent = "Saving…";
+    await saveVision(draft);
+  };
+
+  return h("div", { className: "page-view" }, [
+    h("button", { className: "affirm-close", onClick: () => setView("sky") }, "Close ✕"),
+    h("div", { className: "page-body" }, [
+      h("div", { className: "page-eyebrow" }, longDate(targetDate)),
+      h("div", { className: "page-title" }, "Everything worked out."),
+      h("div", { className: "page-sub" }, `${daysUntil(targetDate)} days from now — write it as though you're already there.`),
+      textarea,
+      h("div", { className: "vision-actions" }, [
+        saveLabel,
+        h("button", { className: "btn-gold", onClick: save }, "Save"),
+      ]),
+    ]),
+  ]);
+}
+
+// ---------- Goals ----------
+function renderGoalsView() {
+  if (state.view !== "goals") return null;
+  const targetDate = (state.vision && state.vision.target_date) || fourMonthsOut();
+  const done = state.goals.filter((g) => g.done).length;
+  let draft = "";
+
+  const input = h("input", {
+    className: "goal-input",
+    placeholder: "One step that moves you closer…",
+    onInput: (e) => { draft = e.target.value; },
+    onKeydown: (e) => { if (e.key === "Enter") submit(); },
+  });
+  const submit = async () => {
+    const t = draft.trim();
+    if (!t) return;
+    input.value = "";
+    draft = "";
+    await addGoal(t);
+  };
+
+  const list = state.goals.length
+    ? h("div", { className: "goal-list" }, state.goals.map((g) => h("div", { className: "goal-row" + (g.done ? " done" : "") }, [
+        h("button", { className: "goal-check", onClick: () => toggleGoal(g), title: g.done ? "Mark as not done" : "Mark as done" }, g.done ? "✦" : ""),
+        h("div", { className: "goal-text" }, g.text),
+        h("button", { className: "goal-delete", onClick: () => deleteGoal(g), title: "Remove" }, "✕"),
+      ])))
+    : h("div", { className: "goal-empty" }, "No steps yet. What's the smallest one you could take this week?");
+
+  return h("div", { className: "page-view" }, [
+    h("button", { className: "affirm-close", onClick: () => setView("sky") }, "Close ✕"),
+    h("div", { className: "page-body" }, [
+      h("div", { className: "page-eyebrow" }, `${done} of ${state.goals.length} taken · ${daysUntil(targetDate)} days left`),
+      h("div", { className: "page-title" }, "Goals"),
+      h("div", { className: "page-sub" }, "The steps between here and everything working out."),
+      h("div", { className: "goal-add" }, [input, h("button", { className: "btn-gold", onClick: submit }, "Add")]),
+      list,
+    ]),
+  ]);
+}
+
 function renderEmptyState() {
+  if (state.view !== "sky" && state.view !== "fulfilled") return null;
   if (visibleStars().length > 0) return null;
   const isFirstVisit = state.view === "sky" && state.stars.length === 0;
   const inner = isFirstVisit
@@ -507,6 +627,8 @@ function renderMainNodes() {
     renderAddModal(),
     renderStarModal(),
     renderAffirmView(),
+    renderVisionView(),
+    renderGoalsView(),
   ].filter(Boolean);
 }
 

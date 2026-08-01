@@ -16,7 +16,13 @@ Live at: https://manifestyourlife-one.vercel.app
 - **Affirmations view** — a slow, full-screen carousel that cycles through
   your active intentions as affirmations to read.
 - **Mark as manifested** — sends the star shooting across the sky with a
-  little chime, then moves it to your **Fulfilled Dreams** view.
+  little chime, then moves it to your **Fulfilled** view.
+- **Everything Worked Out** — a letter to yourself dated four months out,
+  written in past tense as though it already happened. Shows the target date
+  and a live countdown of days remaining.
+- **Goals** — the concrete steps between here and that letter. Check them off
+  as you take them; the page tracks how many you've taken and how long is
+  left.
 
 ## Privacy — how your data is kept just yours
 
@@ -45,8 +51,10 @@ client, loaded straight from a CDN.
 - `index.html` — page shell
 - `style.css` — all styling and animations
 - `app.js` — app logic (auth, rendering, star map state)
+- `dates.js` — date math for the four-month target and countdown
+- `dates.test.js` — self-check for the above (`npm test`)
 - `config.js` — your Supabase project URL + anon key
-- `supabase/schema.sql` — the database table and privacy policy
+- `supabase/schema.sql` — the database tables and privacy policies
 
 ## Setup
 
@@ -55,8 +63,10 @@ client, loaded straight from a CDN.
 1. Go to [supabase.com](https://supabase.com) and create a project (free tier
    is enough).
 2. In the SQL Editor, paste and run the contents of
-   [`supabase/schema.sql`](supabase/schema.sql). This creates the `stars`
-   table and the privacy policy.
+   [`supabase/schema.sql`](supabase/schema.sql). This creates the `stars`,
+   `vision`, and `goals` tables, each with its own privacy policy. The script
+   is safe to re-run — if you set this up before the Everything Worked Out and
+   Goals pages existed, just run it again to add the two new tables.
 3. In **Authentication → Providers**, make sure **Email** is enabled (it is
    by default). Passwordless "magic link" sign-in works out of the box.
 4. In **Authentication → URL Configuration**, add the URL you'll deploy this

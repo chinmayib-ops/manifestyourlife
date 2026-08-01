@@ -1,0 +1,9 @@
+{
+  "name": "manifestyourlife",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node dates.test.js",
+    "dev": "npx serve ."
+  }
+}
