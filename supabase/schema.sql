@@ -1,6 +1,9 @@
--- Run this once in your Supabase project's SQL editor (Project -> SQL Editor -> New query).
--- Creates the "stars" table and locks it down so each signed-in user can only
--- ever see or change their own rows -- this is what makes affirmations private.
+-- Run this in your Supabase project's SQL editor (Project -> SQL Editor -> New query).
+-- Creates the tables and locks each one down so a signed-in user can only ever
+-- see or change their own rows -- this is what keeps your entries private.
+--
+-- Safe to re-run: tables use "if not exists", and each policy is dropped before
+-- being recreated (Postgres has no "create policy if not exists").
 
 create table if not exists public.stars (
   id uuid primary key default gen_random_uuid(),
@@ -16,6 +19,7 @@ create table if not exists public.stars (
 
 alter table public.stars enable row level security;
 
+drop policy if exists "Users manage only their own stars" on public.stars;
 create policy "Users manage only their own stars"
   on public.stars
   for all
@@ -33,6 +37,7 @@ create table if not exists public.vision (
 
 alter table public.vision enable row level security;
 
+drop policy if exists "Users manage only their own vision" on public.vision;
 create policy "Users manage only their own vision"
   on public.vision
   for all
@@ -50,6 +55,7 @@ create table if not exists public.goals (
 
 alter table public.goals enable row level security;
 
+drop policy if exists "Users manage only their own goals" on public.goals;
 create policy "Users manage only their own goals"
   on public.goals
   for all
